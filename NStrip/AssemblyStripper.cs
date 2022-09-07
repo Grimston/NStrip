@@ -49,31 +49,32 @@ namespace NStrip
 					MethodBody body = new MethodBody(method);
 					var il = body.GetILProcessor();
 
-					if (stripType == StripType.ValueRet)
+					switch (stripType)
 					{
-						if (method.ReturnType.IsPrimitive)
+						case StripType.ValueRet:
 						{
-							il.Emit(OpCodes.Ldc_I4_0);
-						}
-						else if (method.ReturnType != voidTypeReference)
-						{
-							il.Emit(OpCodes.Ldnull);
-						}
+							if (method.ReturnType.IsPrimitive)
+							{
+								il.Emit(OpCodes.Ldc_I4_0);
+							}
+							else if (method.ReturnType != voidTypeReference)
+							{
+								il.Emit(OpCodes.Ldnull);
+							}
 
-						il.Emit(OpCodes.Ret);
-					}
-					else if (stripType == StripType.OnlyRet)
-					{
-						il.Emit(OpCodes.Ret);
-					}
-					else if (stripType == StripType.ThrowNull)
-					{
-						il.Emit(OpCodes.Ldnull);
-						il.Emit(OpCodes.Throw);
-					}
-					else if (stripType == StripType.EmptyBody)
-					{
-						il.Clear();
+							il.Emit(OpCodes.Ret);
+							break;
+						}
+						case StripType.OnlyRet:
+							il.Emit(OpCodes.Ret);
+							break;
+						case StripType.ThrowNull:
+							il.Emit(OpCodes.Ldnull);
+							il.Emit(OpCodes.Throw);
+							break;
+						case StripType.EmptyBody:
+							il.Clear();
+							break;
 					}
 
 					method.Body = body;
@@ -104,7 +105,7 @@ namespace NStrip
 		public static void MakePublic(AssemblyDefinition assembly, IList<string> typeNameBlacklist, bool includeCompilerGenerated,
 			bool excludeCgEvents, bool removeReadOnly, bool unityNonSerialized)
 		{
-			bool checkCompilerGeneratedAttribute(IMemberDefinition member)
+			bool CheckCompilerGeneratedAttribute(IMemberDefinition member)
 			{
 				return member.CustomAttributes.Any(x =>
 					x.AttributeType.FullName == "System.Runtime.CompilerServices.CompilerGeneratedAttribute");
@@ -128,7 +129,7 @@ namespace NStrip
 				if (typeNameBlacklist.Contains(type.Name))
 					continue;
 
-				if (!includeCompilerGenerated && checkCompilerGeneratedAttribute(type))
+				if (!includeCompilerGenerated && CheckCompilerGeneratedAttribute(type))
 					continue;
 
 				if (type.IsNested)
@@ -136,28 +137,22 @@ namespace NStrip
 				else
 					type.IsPublic = true;
 
-				foreach (var method in type.Methods)
+				foreach (var method in type.Methods.Where(method => includeCompilerGenerated ||
+				                                                    (!CheckCompilerGeneratedAttribute(method) && !method.IsCompilerControlled)))
 				{
-					if (!includeCompilerGenerated &&
-					    (checkCompilerGeneratedAttribute(method) || method.IsCompilerControlled))
-						continue;
-
 					method.IsPublic = true;
 				}
 
-				foreach (var field in type.Fields)
+				foreach (var field in type.Fields.Where(field => includeCompilerGenerated ||
+				                                                 (!CheckCompilerGeneratedAttribute(field) && !field.IsCompilerControlled)))
 				{
-					if (!includeCompilerGenerated &&
-					    (checkCompilerGeneratedAttribute(field) || field.IsCompilerControlled))
-						continue;
-
 					if (includeCompilerGenerated && excludeCgEvents)
 					{
 						if (type.Events.Any(x => x.Name == field.Name))
 							continue;
 					}
 
-					if (nonSerializedAttributeConstructor != null && !field.IsPublic && !field.CustomAttributes.Any(a => a.AttributeType.FullName == "UnityEngine.SerializeField"))
+					if (nonSerializedAttributeConstructor != null && !field.IsPublic && field.CustomAttributes.All(a => a.AttributeType.FullName != "UnityEngine.SerializeField"))
 					{
 						field.IsNotSerialized = true;
 						field.CustomAttributes.Add(new CustomAttribute(nonSerializedAttributeConstructor));
